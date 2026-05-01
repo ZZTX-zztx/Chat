@@ -5,7 +5,7 @@
   "compatibility_date": "2026-05-01",
   "kv_namespaces": [
     {
-      "binding": "CHAT_KV",
+      "binding": "Chat",
       "id": "3f48e77d245f41bfa2fbc1852bf7c98b"
     }
   ]
