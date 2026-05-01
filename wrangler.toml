@@ -1,0 +1,7 @@
+name = "chat"
+main = "index.js"
+compatibility_date = "2024-04-01"
+
+[[kv_namespaces]]
+binding = "CHAT_KV"
+id = "3f48e77d245f41bfa2fbc1852bf7c98b"

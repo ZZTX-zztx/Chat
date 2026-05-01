@@ -1,0 +1,10 @@
+{
+  "name": "chat",
+  "version": "1.0.0",
+  "description": "Chat app backend on Cloudflare Workers",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  }
+}
