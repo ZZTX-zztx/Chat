@@ -3,6 +3,12 @@
   "name": "chat",
   "main": "index.js",
   "compatibility_date": "2026-05-01",
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
   "kv_namespaces": [
     {
       "binding": "Chat",
