@@ -19,6 +19,14 @@ export default {
       return await sendMessage(request, env);
     }
 
+    if (path === '/api/anonymous/messages' && request.method === 'GET') {
+      return await getAnonymousMessages(request, env);
+    }
+
+    if (path === '/api/anonymous/messages' && request.method === 'POST') {
+      return await sendAnonymousMessage(request, env);
+    }
+
     if (path === '/api/ws') {
       return await handleWebSocket(request, env);
     }
@@ -252,4 +260,65 @@ async function verifyPassword(password, hash) {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   return computedHash === hash;
+}
+
+async function getAnonymousMessages(request, env) {
+  try {
+    const messagesList = await env.Chat.list({ prefix: 'anonymous_msg:' });
+    const messages = [];
+
+    for (const key of messagesList.keys) {
+      const msgData = await env.Chat.get(key.name);
+      if (msgData) {
+        messages.push(JSON.parse(msgData));
+      }
+    }
+
+    messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    return new Response(JSON.stringify({ messages }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function sendAnonymousMessage(request, env) {
+  try {
+    const body = await request.json();
+    const { username, text } = body;
+
+    if (!username || !text) {
+      return new Response(JSON.stringify({ error: 'Username and text required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const messageId = crypto.randomUUID();
+    const message = {
+      id: messageId,
+      userId: 'anonymous_' + crypto.randomUUID(),
+      username,
+      text,
+      timestamp: new Date().toISOString()
+    };
+
+    await env.Chat.put(`anonymous_msg:${messageId}`, JSON.stringify(message));
+
+    return new Response(JSON.stringify({ success: true, message }), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 }
