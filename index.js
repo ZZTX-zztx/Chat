@@ -39,7 +39,7 @@ async function registerUser(request, env) {
       });
     }
 
-    const existingUser = await env.CHAT_KV.get(`user:${username}`);
+    const existingUser = await env.Chat.get(`user:${username}`);
     if (existingUser) {
       return new Response(JSON.stringify({ error: 'Username already exists' }), {
         status: 409,
@@ -55,8 +55,8 @@ async function registerUser(request, env) {
       createdAt: new Date().toISOString()
     };
 
-    await env.CHAT_KV.put(`user:${username}`, JSON.stringify(userData));
-    await env.CHAT_KV.put(`userid:${userId}`, JSON.stringify(userData));
+    await env.Chat.put(`user:${username}`, JSON.stringify(userData));
+    await env.Chat.put(`userid:${userId}`, JSON.stringify(userData));
 
     return new Response(JSON.stringify({ success: true, userId }), {
       status: 201,
@@ -82,7 +82,7 @@ async function loginUser(request, env) {
       });
     }
 
-    const userData = await env.CHAT_KV.get(`user:${username}`);
+    const userData = await env.Chat.get(`user:${username}`);
     if (!userData) {
       return new Response(JSON.stringify({ error: 'User not found' }), {
         status: 404,
@@ -101,7 +101,7 @@ async function loginUser(request, env) {
     }
 
     const token = crypto.randomUUID();
-    await env.CHAT_KV.put(`token:${token}`, JSON.stringify({ userId: user.id, username: user.username }), { expirationTtl: 86400 });
+    await env.Chat.put(`token:${token}`, JSON.stringify({ userId: user.id, username: user.username }), { expirationTtl: 86400 });
 
     return new Response(JSON.stringify({ success: true, token, userId: user.id, username: user.username }), {
       status: 200,
@@ -127,7 +127,7 @@ async function getMessages(request, env) {
       });
     }
 
-    const tokenData = await env.CHAT_KV.get(`token:${token}`);
+    const tokenData = await env.Chat.get(`token:${token}`);
     if (!tokenData) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -135,11 +135,11 @@ async function getMessages(request, env) {
       });
     }
 
-    const messagesList = await env.CHAT_KV.list({ prefix: 'msg:' });
+    const messagesList = await env.Chat.list({ prefix: 'msg:' });
     const messages = [];
 
     for (const key of messagesList.keys) {
-      const msgData = await env.CHAT_KV.get(key.name);
+      const msgData = await env.Chat.get(key.name);
       if (msgData) {
         messages.push(JSON.parse(msgData));
       }
@@ -171,7 +171,7 @@ async function sendMessage(request, env) {
       });
     }
 
-    const tokenData = await env.CHAT_KV.get(`token:${token}`);
+    const tokenData = await env.Chat.get(`token:${token}`);
     if (!tokenData) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
@@ -189,7 +189,7 @@ async function sendMessage(request, env) {
       timestamp: new Date().toISOString()
     };
 
-    await env.CHAT_KV.put(`msg:${messageId}`, JSON.stringify(message));
+    await env.Chat.put(`msg:${messageId}`, JSON.stringify(message));
 
     return new Response(JSON.stringify({ success: true, message }), {
       status: 201,
