@@ -16,7 +16,6 @@ APP_DOWNLOAD_URL = "https://chat.zztxer.dpdns.org/app-debug.apk"
 APP_CHANGELOG = ""
 APP_FORCE_UPDATE = "false"
 APP_MIN_SDK = "24"
-=======
 name = "chat"
 main = "src/worker.js"
 compatibility_date = "2024-01-01"
