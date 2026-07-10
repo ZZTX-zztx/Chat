@@ -44,6 +44,28 @@ export default {
       });
     }
 
+    if (request.method === "GET" && (path === "/health" || path === "/")) {
+      const roomId = (url.searchParams.get("room") || env.ROOM_ID || "default").trim().slice(0, 64);
+      return jsonResponse(200, {
+        ok: true,
+        service: "chat-kv-worker",
+        room: roomId.replace(/[^a-zA-Z0-9_-]/g, "-"),
+        kv_bound: !!env.CHAT_KV,
+      }, origin);
+    }
+
+    if (request.method === "GET" && path === "/api/app-version") {
+      return jsonResponse(200, {
+        ok: true,
+        versionCode: parseInt(env.APP_VERSION_CODE || "1", 10) || 1,
+        versionName: env.APP_VERSION_NAME || "1.0.0",
+        downloadUrl: env.APP_DOWNLOAD_URL || "",
+        changelog: env.APP_CHANGELOG || "",
+        forceUpdate: (env.APP_FORCE_UPDATE || "false").toString().toLowerCase() === "true",
+        minSdkVersion: parseInt(env.APP_MIN_SDK || "24", 10) || 24,
+      }, origin);
+    }
+
     const apiKey = env.API_KEY || "";
     if (apiKey) {
       const provided = request.headers.get("x-api-key") || request.headers.get("Authorization")?.replace("Bearer ", "");
@@ -57,17 +79,6 @@ export default {
     const prefix = `msg:${safeRoomId}:`;
 
     try {
-      if (path === "/health" || path === "/") {
-        if (request.method === "GET") {
-          return jsonResponse(200, {
-            ok: true,
-            service: "chat-kv-worker",
-            room: safeRoomId,
-            kv_bound: !!env.CHAT_KV,
-          }, origin);
-        }
-      }
-
       if (path === "/api/messages" || path === "/messages") {
         if (request.method === "GET") {
           return await getMessages(request, env, ctx, prefix, safeRoomId, origin);
