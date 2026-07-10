@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 {
   "name": "chat",
   "version": "1.0.0",
@@ -17,3 +18,24 @@
     "workerd@1.20260701.1": true
   }
 }
+=======
+{
+  "name": "chat",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker + KV based real-time chat backend",
+  "main": "src/worker.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "log": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.107.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "sharp@0.34.5": true,
+    "workerd@1.20260701.1": true
+  }
+}
+>>>>>>> 32a88550df533920ad83140f53de09a8489b391c
