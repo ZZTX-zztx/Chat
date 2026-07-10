@@ -1,48 +1,43 @@
 @echo off
 chcp 65001 >nul
-echo ==============================================
-echo           Git 一键提交推送脚本
-echo ==============================================
+echo ======================================
+echo         Git 一次性完整推送脚本
+echo         分支：master
+echo ======================================
 echo.
 
-:: 查看当前变更
-echo [1/5] 查看文件状态
+echo 1. 查看当前文件变更
 git status
 echo.
 
-:: 添加所有变更
-echo [2/5] git add .
+echo 2. 添加所有修改文件
 git add .
 if %errorlevel% neq 0 (
-    echo 错误：git add 失败！
+    echo 错误：git add 执行失败！
     pause
     exit /b %errorlevel%
 )
 echo.
 
-:: 输入提交备注
-set "msg=Update"
-set /p "msg=请输入提交备注(直接回车默认Update): "
-echo [3/5] git commit -m "%msg%"
-git commit -m "%msg%"
-if %errorlevel% neq 0 (
-    echo 提示：无文件变更无需提交，继续推送
-)
+:: 自定义提交备注，回车默认Update
+set "commit_msg=Update"
+set /p "commit_msg=请输入本次更新备注(直接回车默认Update)："
+echo 3. 提交代码，备注：%commit_msg%
+git commit -m "%commit_msg%"
+:: 无文件变更时commit会报错，不阻断推送流程
 echo.
 
-:: 先拉取远程代码防止冲突
-echo [4/5] git pull origin main
-git pull origin main --rebase
+echo 4. 拉取远程最新代码避免冲突
+git pull origin master --rebase
 if %errorlevel% neq 0 (
-    echo 错误：拉取代码失败，存在冲突或网络问题！
+    echo 警告：拉取代码出现冲突，请手动解决后再运行脚本推送！
     pause
     exit /b %errorlevel%
 )
 echo.
 
-:: 推送到远程main分支
-echo [5/5] git push origin main
-git push origin main
+echo 5. 推送本地master到远程origin
+git push origin master
 if %errorlevel% neq 0 (
     echo 错误：推送失败！
     pause
@@ -50,7 +45,7 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo ==============================================
-echo ✅ 全部操作完成，推送成功！
-echo ==============================================
+echo ======================================
+echo ✅ 全部流程执行完毕，代码推送成功！
+echo ======================================
 pause
