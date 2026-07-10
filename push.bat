@@ -31,8 +31,11 @@ echo [INFO] Remote: %REMOTE_URL%
 
 set CUR_BRANCH=
 for /f "usebackq delims=" %%i in (`git branch --show-current`) do set CUR_BRANCH=%%i
-if "%CUR_BRANCH%"=="" set CUR_BRANCH=master
+if "%CUR_BRANCH%"=="" set CUR_BRANCH=main
 echo [INFO] Branch: %CUR_BRANCH%
+if not "%CUR_BRANCH%"=="main" (
+    echo [WARN] Current branch is '%CUR_BRANCH%', not 'main'. Cloudflare auto-deploy listens on 'main'.
+)
 echo.
 
 set HAS_CHANGES=0
@@ -58,10 +61,9 @@ if errorlevel 1 (
 echo       OK.
 echo.
 
-set TMP_COMMIT_MSG_FILE=%TEMP%\git_commit_msg_%RANDOM%.txt
-powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm:ss' | Out-File -Encoding ASCII -FilePath '%TMP_COMMIT_MSG_FILE%'"
-set /p TS=<%TMP_COMMIT_MSG_FILE%
-del "%TMP_COMMIT_MSG_FILE%"
+set TS=
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'"`) do set TS=%%i
+if "%TS%"=="" set TS=%DATE% %TIME%
 set COMMIT_MSG=Update %TS%
 
 echo [2/3] git commit -m "%COMMIT_MSG%" ...
@@ -84,7 +86,10 @@ if %PUSH_ERR% neq 0 (
     echo.
     echo   Common causes and solutions:
     echo   - Remote has newer commits:   git pull --rebase origin %CUR_BRANCH%
-    echo   - No push permission:         check GitHub/GitLab SSH key or token
+    echo                                (if that fails, use: git fetch origin main ^&^& git reset --hard origin/main)
+    echo   - Remote diverged / stale:    git push --force-with-lease origin %CUR_BRANCH%
+    echo   - Wrong target branch:        ensure pushing to 'main' (not 'master'), Cloudflare listens on 'main'
+    echo   - No push permission:         check GitHub SSH key or PAT token
     echo   - Network issue:              check internet or proxy settings
     echo.
     pause
