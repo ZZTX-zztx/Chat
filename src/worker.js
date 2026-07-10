@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 const ALLOWED_ORIGINS = ["*"];
 const MAX_CONTENT_LENGTH = 4000;
 const DEFAULT_LIMIT = 100;
@@ -265,7 +264,6 @@ async function deleteMessage(request, env, ctx, prefix, id, origin) {
   await env.CHAT_KV.delete(found.name);
   return jsonResponse(200, { ok: true, deletedId: id }, origin);
 }
-=======
 const ALLOWED_ORIGINS = ["*"];
 const MAX_CONTENT_LENGTH = 4000;
 const DEFAULT_LIMIT = 100;
@@ -532,4 +530,3 @@ async function deleteMessage(request, env, ctx, prefix, id, origin) {
   await env.CHAT_KV.delete(found.name);
   return jsonResponse(200, { ok: true, deletedId: id }, origin);
 }
->>>>>>> 32a88550df533920ad83140f53de09a8489b391c
