@@ -1,19 +1,19 @@
 @echo off
 chcp 65001 >nul
-echo ======================================
-echo        Git 一次性推送脚本 master
-echo ======================================
+echo 校验package.json格式
+node -e "console.log(require('./package.json'))"
+if %errorlevel% neq 0 (
+    echo package.json JSON格式错误，请先删除冲突标记！
+    pause
+    exit /b
+)
 echo.
-git status
+echo 生成package-lock.json
+npm install
 echo.
-echo [添加全部文件] git add .
-git add .
-set "msg=Update"
-set /p "msg=输入提交备注(回车默认Update)："
-git commit -m "%msg%"
-echo.
-echo [推送至远程master] git push origin master
+git add package.json package-lock.json .gitignore
+git commit -m "修复package.json合并冲突，生成lock文件修复CI构建"
 git push origin master
 echo.
-echo ✅ 推送完成
+echo ✅ 修复推送完成，重新触发部署即可正常构建
 pause
