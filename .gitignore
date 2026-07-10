@@ -1,8 +1,8 @@
 node_modules/
 .wrangler/
-.dev.vars
 .wrangler.toml
-.DS_Store
-*.log
+.dev.vars
 .env
 .env.*
+.DS_Store
+*.log
