@@ -82,13 +82,13 @@ set PUSH_ERR=%errorlevel%
 
 if %PUSH_ERR% neq 0 (
     echo.
-    echo [ERROR] git push failed (exit code %PUSH_ERR%).
+    echo [ERROR] git push failed ^(exit code %PUSH_ERR%^).
     echo.
     echo   Common causes and solutions:
     echo   - Remote has newer commits:   git pull --rebase origin %CUR_BRANCH%
-    echo                                (if that fails, use: git fetch origin main ^&^& git reset --hard origin/main)
+    echo                                ^(if that fails, use: git fetch origin main ^&^& git reset --hard origin/main^)
     echo   - Remote diverged / stale:    git push --force-with-lease origin %CUR_BRANCH%
-    echo   - Wrong target branch:        ensure pushing to 'main' (not 'master'), Cloudflare listens on 'main'
+    echo   - Wrong target branch:        ensure pushing to 'main' ^(not 'master'^), Cloudflare listens on 'main'
     echo   - No push permission:         check GitHub SSH key or PAT token
     echo   - Network issue:              check internet or proxy settings
     echo.
