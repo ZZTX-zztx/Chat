@@ -1,5 +1,6 @@
 const ALLOWED_ORIGINS = ["*"];
-const MAX_CONTENT_LENGTH = 4000;
+const MAX_CONTENT_LENGTH = 15_000_000;
+const MAX_REQUEST_BODY_BYTES = 18 * 1024 * 1024;
 const DEFAULT_LIMIT = 100;
 
 function corsHeaders(origin) {
@@ -168,9 +169,26 @@ async function getMany(kv, keys) {
 }
 
 async function sendMessage(request, env, ctx, prefix, safeRoomId, origin) {
+  const clHeader = request.headers.get("Content-Length");
+  if (clHeader) {
+    const cl = parseInt(clHeader, 10);
+    if (!Number.isNaN(cl) && cl > MAX_REQUEST_BODY_BYTES) {
+      return new Response(
+        JSON.stringify({ ok: false, error: `请求体过大，最大 ${MAX_REQUEST_BODY_BYTES} 字节` }),
+        { status: 413, headers: corsHeaders(origin) }
+      );
+    }
+  }
+  const rawBuffer = await request.arrayBuffer();
+  if (rawBuffer.byteLength > MAX_REQUEST_BODY_BYTES) {
+    return new Response(
+      JSON.stringify({ ok: false, error: `请求体过大，最大 ${MAX_REQUEST_BODY_BYTES} 字节` }),
+      { status: 413, headers: corsHeaders(origin) }
+    );
+  }
   let body;
   try {
-    body = await request.json();
+    body = JSON.parse(new TextDecoder("utf-8").decode(rawBuffer));
   } catch {
     return jsonResponse(400, { ok: false, error: "Invalid JSON body" }, origin);
   }
