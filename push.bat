@@ -9,6 +9,12 @@ echo   Backend Deploy Script
 echo   Current Dir: %cd%
 echo ========================================
 echo.
+echo [INFO] This script will:
+echo        1) git add .
+echo        2) git commit
+echo        3) git push origin %CUR_BRANCH%        (save to GitHub)
+echo        4) wrangler deploy                    (deploy Worker to Cloudflare)
+echo.
 
 git rev-parse --is-inside-work-tree >nul 2>&1
 if errorlevel 1 (
@@ -51,7 +57,7 @@ echo [INFO] Changes detected:
 git status --short
 echo.
 
-echo [1/3] git add . ...
+echo [1/4] git add . ...
 git add .
 if errorlevel 1 (
     echo [ERROR] git add failed!
@@ -66,7 +72,7 @@ for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "Get-Date -For
 if "%TS%"=="" set TS=%DATE% %TIME%
 set COMMIT_MSG=Update %TS%
 
-echo [2/3] git commit -m "%COMMIT_MSG%" ...
+echo [2/4] git commit -m "%COMMIT_MSG%" ...
 git commit -m "%COMMIT_MSG%"
 if errorlevel 1 (
     echo [ERROR] git commit failed!
@@ -76,7 +82,7 @@ if errorlevel 1 (
 echo       OK.
 echo.
 
-echo [3/3] git push origin %CUR_BRANCH% ...
+echo [3/4] git push origin %CUR_BRANCH% ...
 git push origin %CUR_BRANCH%
 set PUSH_ERR=%errorlevel%
 
@@ -98,8 +104,45 @@ if %PUSH_ERR% neq 0 (
 
 echo       OK.
 echo.
+
+echo [4/4] wrangler deploy (deploy Worker to Cloudflare) ...
+where wrangler >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] 'wrangler' command not found in PATH.
+    echo        Install:  npm install -g wrangler@latest
+    echo        Login:    wrangler login
+    echo        Then re-run this script, or deploy manually:
+    echo          cd /d "%cd%"
+    echo          wrangler deploy
+    echo.
+    pause
+    exit /b 2
+)
+
+wrangler deploy
+set W_ERR=%errorlevel%
+if %W_ERR% neq 0 (
+    echo.
+    echo [ERROR] wrangler deploy failed ^(exit code %W_ERR%^).
+    echo.
+    echo   Common causes and solutions:
+    echo   - Not logged in:              wrangler login
+    echo   - Wrong Cloudflare account:   wrangler whoami   (check matches 'chat' Worker)
+    echo   - wrangler.toml syntax error: check file for typos
+    echo   - KV namespace not found:     verify CHAT_KV id in wrangler.toml
+    echo   - Network / auth issue:       wrangler logout ^&^& wrangler login
+    echo.
+    pause
+    exit /b %W_ERR%
+)
+echo       OK.
+echo.
+
 echo ========================================
-echo   Done! Push successful.
+echo   Done! Push + Deploy successful.
+echo   - Worker:   https://chat.zztxer.dpdns.org
+echo   - Health:   https://chat.zztxer.dpdns.org/health
+echo   - Version:  https://chat.zztxer.dpdns.org/api/app-version
 echo ========================================
 echo.
 pause
