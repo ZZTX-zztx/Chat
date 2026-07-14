@@ -67,6 +67,17 @@ export default {
       }, origin);
     }
 
+    if (request.method === "GET" && path === "/api/win-version") {
+      return jsonResponse(200, {
+        ok: true,
+        versionCode: parseInt(env.WIN_VERSION_CODE || "1", 10) || 1,
+        versionName: env.WIN_VERSION_NAME || "1.0.0",
+        downloadUrl: env.WIN_DOWNLOAD_URL || "",
+        changelog: env.WIN_CHANGELOG || "",
+        forceUpdate: (env.WIN_FORCE_UPDATE || "false").toString().toLowerCase() === "true",
+      }, origin);
+    }
+
     const apiKey = env.API_KEY || "";
     if (apiKey) {
       const provided = request.headers.get("x-api-key") || request.headers.get("Authorization")?.replace("Bearer ", "");

@@ -1,5 +1,6 @@
 node_modules/
 Python/
+chat-windows/
 chat-apk/
 .wrangler/
 .dev.vars
