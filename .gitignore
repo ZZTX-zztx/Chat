@@ -1,4 +1,5 @@
 node_modules/
+Python/
 chat-apk/
 .wrangler/
 .dev.vars
