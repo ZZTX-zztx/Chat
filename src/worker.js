@@ -182,8 +182,6 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
               ids.push(msg.id);
             }
           } catch {
-            const existingId = k.name.slice(prefix.length);
-            if (existingId) ids.push(existingId);
           }
         }
       }
