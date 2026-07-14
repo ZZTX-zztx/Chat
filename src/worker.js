@@ -137,10 +137,25 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
   }
 
   if (messageIds.length === 0) {
-    const list = await kv.list({ prefix, limit: limit + 50 });
-    const keys = list.keys || [];
-    const sortedKeys = keys.map((k) => k.name).sort();
-    const sliceKeys = sortedKeys.slice(-limit);
+    let list, keys, sortedKeys, sliceKeys;
+    try {
+      list = await kv.list({ prefix, limit: limit + 50 });
+      keys = list.keys || [];
+      sortedKeys = keys.map((k) => k.name).sort();
+      sliceKeys = sortedKeys.slice(-limit);
+    } catch (err) {
+      console.error("KV list failed:", err);
+      return jsonResponse(200, {
+        ok: true,
+        room: safeRoomId,
+        messages: [],
+        count: 0,
+        totalKeys: 0,
+        cursor: null,
+        list_complete: true,
+        error: "KV list temporarily unavailable, messages will be restored when new messages are sent",
+      }, origin);
+    }
     
     if (sliceKeys.length === 0) {
       return jsonResponse(200, {
@@ -170,23 +185,27 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
     const filtered = since ? messages.filter((m) => (m.timestamp || 0) > parseInt(since, 10)) : messages;
 
     ctx.waitUntil((async () => {
-      const allList = await kv.list({ prefix, limit: 1000 });
-      const allKeys = allList.keys || [];
-      const ids = [];
-      for (const k of allKeys) {
-        if (k.name !== indexKey) {
-          const raw = await kv.get(k.name, { type: "text" });
-          try {
-            const msg = JSON.parse(raw);
-            if (msg && msg.id) {
-              ids.push(msg.id);
+      try {
+        const allList = await kv.list({ prefix, limit: 1000 });
+        const allKeys = allList.keys || [];
+        const ids = [];
+        for (const k of allKeys) {
+          if (k.name !== indexKey) {
+            const raw = await kv.get(k.name, { type: "text" });
+            try {
+              const msg = JSON.parse(raw);
+              if (msg && msg.id) {
+                ids.push(msg.id);
+              }
+            } catch {
             }
-          } catch {
           }
         }
+        ids.sort();
+        await kv.put(indexKey, JSON.stringify(ids));
+      } catch (err) {
+        console.error("Index building failed:", err);
       }
-      ids.sort();
-      await kv.put(indexKey, JSON.stringify(ids));
     })());
 
     return jsonResponse(200, {
