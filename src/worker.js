@@ -122,33 +122,90 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
     parseInt(env.MAX_MESSAGES || DEFAULT_LIMIT, 10) || DEFAULT_LIMIT
   );
   const since = url.searchParams.get("since");
-  const cursor = url.searchParams.get("cursor");
 
   const kv = env.CHAT_KV;
-  const listOpts = { prefix, limit: limit + 50 };
-  if (cursor) listOpts.cursor = cursor;
+  const indexKey = `${prefix}index`;
 
-  const list = await kv.list(listOpts);
-  const keys = list.keys || [];
+  const indexRaw = await kv.get(indexKey, { type: "text" });
+  let messageIds = [];
+  if (indexRaw) {
+    try {
+      messageIds = JSON.parse(indexRaw);
+    } catch {
+      messageIds = [];
+    }
+  }
 
-  const sortedKeys = keys
-    .map((k) => k.name)
-    .sort();
+  if (messageIds.length === 0) {
+    const list = await kv.list({ prefix, limit: limit + 50 });
+    const keys = list.keys || [];
+    const sortedKeys = keys.map((k) => k.name).sort();
+    const sliceKeys = sortedKeys.slice(-limit);
+    
+    if (sliceKeys.length === 0) {
+      return jsonResponse(200, {
+        ok: true,
+        room: safeRoomId,
+        messages: [],
+        count: 0,
+        totalKeys: 0,
+        cursor: null,
+        list_complete: true,
+      }, origin);
+    }
 
-  const sliceKeys = sortedKeys.slice(-limit);
-  if (sliceKeys.length === 0) {
+    const result = await getMany(kv, sliceKeys);
+    const messages = result
+      .filter((m) => m)
+      .map((raw) => {
+        try {
+          return typeof raw === "string" ? JSON.parse(raw) : raw;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+    const filtered = since ? messages.filter((m) => (m.timestamp || 0) > parseInt(since, 10)) : messages;
+
+    ctx.waitUntil((async () => {
+      const allList = await kv.list({ prefix, limit: 1000 });
+      const allKeys = allList.keys || [];
+      const ids = [];
+      for (const k of allKeys) {
+        if (k.name !== indexKey) {
+          const raw = await kv.get(k.name, { type: "text" });
+          try {
+            const msg = JSON.parse(raw);
+            if (msg && msg.id) {
+              ids.push(msg.id);
+            }
+          } catch {
+            const existingId = k.name.slice(prefix.length);
+            if (existingId) ids.push(existingId);
+          }
+        }
+      }
+      ids.sort();
+      await kv.put(indexKey, JSON.stringify(ids));
+    })());
+
     return jsonResponse(200, {
       ok: true,
       room: safeRoomId,
-      messages: [],
-      count: 0,
-      totalKeys: keys.length,
-      cursor: list.cursor,
-      list_complete: list.list_complete,
+      messages: filtered,
+      count: filtered.length,
+      totalKeys: messages.length,
+      cursor: null,
+      list_complete: true,
     }, origin);
   }
 
-  const result = await getMany(kv, sliceKeys);
+  const sliceIds = messageIds.slice(-limit);
+  const keys = sliceIds.map(id => `${prefix}${id}`);
+  
+  const result = await getMany(kv, keys);
   const messages = result
     .filter((m) => m)
     .map((raw) => {
@@ -168,9 +225,9 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
     room: safeRoomId,
     messages: filtered,
     count: filtered.length,
-    totalKeys: keys.length,
-    cursor: list.cursor,
-    list_complete: list.list_complete,
+    totalKeys: messageIds.length,
+    cursor: null,
+    list_complete: true,
   }, origin);
 }
 
@@ -216,7 +273,7 @@ async function sendMessage(request, env, ctx, prefix, safeRoomId, origin) {
 
   const timestamp = Date.now();
   const id = uuid();
-  const key = `${prefix}${timestamp.toString().padStart(16, "0")}_${id.slice(0, 8)}`;
+  const key = `${prefix}${id}`;
 
   const message = {
     id,
@@ -231,21 +288,29 @@ async function sendMessage(request, env, ctx, prefix, safeRoomId, origin) {
     metadata: { t: timestamp, s: sender.slice(0, 20), r: safeRoomId },
   });
 
-  if (env.MAX_MESSAGES) {
-    ctx.waitUntil((async () => {
-      const max = parseInt(env.MAX_MESSAGES, 10);
-      const list = await env.CHAT_KV.list({ prefix, limit: max + 200 });
-      const keys = list.keys.map((k) => k.name).sort();
-      if (keys.length > max) {
-        const toDelete = keys.slice(0, keys.length - max);
-        const batchSize = 100;
-        for (let i = 0; i < toDelete.length; i += batchSize) {
-          const batch = toDelete.slice(i, i + batchSize);
-          await env.CHAT_KV.delete(batch);
-        }
-      }
-    })());
+  const indexKey = `${prefix}index`;
+  const indexRaw = await env.CHAT_KV.get(indexKey, { type: "text" });
+  let messageIds = [];
+  if (indexRaw) {
+    try {
+      messageIds = JSON.parse(indexRaw);
+    } catch {
+      messageIds = [];
+    }
   }
+  messageIds.push(id);
+
+  if (env.MAX_MESSAGES) {
+    const max = parseInt(env.MAX_MESSAGES, 10);
+    if (messageIds.length > max) {
+      const toDeleteIds = messageIds.slice(0, messageIds.length - max);
+      const toDeleteKeys = toDeleteIds.map(delId => `${prefix}${delId}`);
+      await env.CHAT_KV.delete(toDeleteKeys);
+      messageIds = messageIds.slice(-max);
+    }
+  }
+
+  await env.CHAT_KV.put(indexKey, JSON.stringify(messageIds));
 
   return jsonResponse(201, { ok: true, message }, origin);
 }
@@ -263,13 +328,24 @@ async function deleteMessage(request, env, ctx, prefix, id, origin) {
     return jsonResponse(400, { ok: false, error: "Missing requester sender" }, origin);
   }
 
-  const list = await env.CHAT_KV.list({ prefix });
-  const found = list.keys.find((k) => k.name.endsWith(`_${id.slice(0, 8)}`) || k.name.includes(id));
-  if (!found) {
+  const indexKey = `${prefix}index`;
+  const indexRaw = await env.CHAT_KV.get(indexKey, { type: "text" });
+  let messageIds = [];
+  if (indexRaw) {
+    try {
+      messageIds = JSON.parse(indexRaw);
+    } catch {
+      messageIds = [];
+    }
+  }
+
+  const foundIndex = messageIds.indexOf(id);
+  if (foundIndex === -1) {
     return jsonResponse(404, { ok: false, error: "Message not found" }, origin);
   }
 
-  const raw = await env.CHAT_KV.get(found.name, { type: "text" });
+  const messageKey = `${prefix}${id}`;
+  const raw = await env.CHAT_KV.get(messageKey, { type: "text" });
   let message = null;
   try {
     message = raw ? JSON.parse(raw) : null;
@@ -290,6 +366,10 @@ async function deleteMessage(request, env, ctx, prefix, id, origin) {
     return jsonResponse(410, { ok: false, error: "超过30秒撤回时限" }, origin);
   }
 
-  await env.CHAT_KV.delete(found.name);
+  await env.CHAT_KV.delete(messageKey);
+  
+  messageIds.splice(foundIndex, 1);
+  await env.CHAT_KV.put(indexKey, JSON.stringify(messageIds));
+
   return jsonResponse(200, { ok: true, deletedId: id }, origin);
 }
