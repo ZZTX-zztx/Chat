@@ -2,6 +2,8 @@ const ALLOWED_ORIGINS = ["*"];
 const MAX_CONTENT_LENGTH = 15_000_000;
 const MAX_REQUEST_BODY_BYTES = 18 * 1024 * 1024;
 const DEFAULT_LIMIT = 100;
+const TOKEN_EXPIRE_SECONDS = 86400;
+const PBKDF2_ITERATIONS = 100000;
 
 function corsHeaders(origin) {
   const headers = {
@@ -23,6 +25,55 @@ function uuid() {
     const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+async function generateSalt() {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function hashPassword(password, salt) {
+  const encoder = new TextEncoder();
+  const passwordBytes = encoder.encode(password);
+  const saltBytes = encoder.encode(salt);
+  
+  const key = await crypto.subtle.importKey(
+    "raw",
+    passwordBytes,
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"]
+  );
+  
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: saltBytes, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    key,
+    256
+  );
+  
+  return Array.from(new Uint8Array(bits))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function validateToken(kv, token) {
+  if (!token) return null;
+  const key = `token:${token}`;
+  const raw = await kv.get(key, { type: "text" });
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw);
+    if (data.expiresAt < Date.now()) {
+      await kv.delete(key);
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 function jsonResponse(status, data, origin) {
@@ -78,10 +129,27 @@ export default {
       }, origin);
     }
 
+    if (request.method === "POST" && path === "/api/register") {
+      return await handleRegister(request, env, origin);
+    }
+
+    if (request.method === "POST" && path === "/api/login") {
+      return await handleLogin(request, env, origin);
+    }
+
+    let currentUser = null;
+    const token = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (token) {
+      const tokenData = await validateToken(env.CHAT_KV, token);
+      if (tokenData) {
+        currentUser = tokenData.username;
+      }
+    }
+
     const apiKey = env.API_KEY || "";
     if (apiKey) {
       const provided = request.headers.get("x-api-key") || request.headers.get("Authorization")?.replace("Bearer ", "");
-      if (provided !== apiKey) {
+      if (provided !== apiKey && !currentUser) {
         return jsonResponse(401, { ok: false, error: "Unauthorized" }, origin);
       }
     }
@@ -389,4 +457,118 @@ async function deleteMessage(request, env, ctx, prefix, id, origin) {
   await env.CHAT_KV.put(indexKey, JSON.stringify(messageIds));
 
   return jsonResponse(200, { ok: true, deletedId: id }, origin);
+}
+
+async function handleRegister(request, env, origin) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse(400, { ok: false, error: "Invalid JSON body" }, origin);
+  }
+
+  const username = (body.username || "").toString().trim();
+  const password = (body.password || "").toString();
+
+  if (!username) {
+    return jsonResponse(400, { ok: false, error: "用户名不能为空" }, origin);
+  }
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+    return jsonResponse(400, { ok: false, error: "用户名必须由3-20个字母、数字或下划线组成" }, origin);
+  }
+  if (!password) {
+    return jsonResponse(400, { ok: false, error: "密码不能为空" }, origin);
+  }
+  if (password.length < 6) {
+    return jsonResponse(400, { ok: false, error: "密码至少需要6位" }, origin);
+  }
+
+  const kv = env.CHAT_KV;
+  const userKey = `user:${username}`;
+  const existing = await kv.get(userKey, { type: "text" });
+
+  if (existing) {
+    return jsonResponse(409, { ok: false, error: "用户名已存在" }, origin);
+  }
+
+  const salt = await generateSalt();
+  const hash = await hashPassword(password, salt);
+
+  const userData = {
+    username,
+    passwordHash: hash,
+    salt,
+    createdAt: Date.now(),
+  };
+
+  await kv.put(userKey, JSON.stringify(userData));
+
+  const token = uuid();
+  const tokenKey = `token:${token}`;
+  const tokenData = {
+    username,
+    expiresAt: Date.now() + TOKEN_EXPIRE_SECONDS * 1000,
+  };
+  await kv.put(tokenKey, JSON.stringify(tokenData));
+
+  return jsonResponse(201, {
+    ok: true,
+    message: "注册成功",
+    token,
+    username,
+    expiresAt: tokenData.expiresAt,
+  }, origin);
+}
+
+async function handleLogin(request, env, origin) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse(400, { ok: false, error: "Invalid JSON body" }, origin);
+  }
+
+  const username = (body.username || "").toString().trim();
+  const password = (body.password || "").toString();
+
+  if (!username || !password) {
+    return jsonResponse(400, { ok: false, error: "用户名或密码不能为空" }, origin);
+  }
+
+  const kv = env.CHAT_KV;
+  const userKey = `user:${username}`;
+  const raw = await kv.get(userKey, { type: "text" });
+
+  if (!raw) {
+    return jsonResponse(401, { ok: false, error: "用户名或密码错误" }, origin);
+  }
+
+  let userData;
+  try {
+    userData = JSON.parse(raw);
+  } catch {
+    return jsonResponse(500, { ok: false, error: "服务器错误" }, origin);
+  }
+
+  const hash = await hashPassword(password, userData.salt);
+
+  if (hash !== userData.passwordHash) {
+    return jsonResponse(401, { ok: false, error: "用户名或密码错误" }, origin);
+  }
+
+  const token = uuid();
+  const tokenKey = `token:${token}`;
+  const tokenData = {
+    username,
+    expiresAt: Date.now() + TOKEN_EXPIRE_SECONDS * 1000,
+  };
+  await kv.put(tokenKey, JSON.stringify(tokenData));
+
+  return jsonResponse(200, {
+    ok: true,
+    message: "登录成功",
+    token,
+    username,
+    expiresAt: tokenData.expiresAt,
+  }, origin);
 }
