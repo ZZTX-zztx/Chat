@@ -7,7 +7,7 @@ kv_namespaces = {
     id = "3f48e77d245f41bfa2fbc1852bf7c98b"
 }
 
-[vars]
+[varsion]
 ROOM_ID = "default-room"
 MAX_MESSAGES = "500"
 API_KEY = ""
