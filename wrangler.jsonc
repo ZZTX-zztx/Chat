@@ -18,10 +18,10 @@
     "APP_CHANGELOG": "1. 【新增】添加密码登录功能，支持用户名密码注册和登录\n2. 【新增】登录成功后获取 token，后续请求自动携带身份认证\n3. 【新增】token 有效期为 24 小时，过期后需重新登录\n4. 【新增】登录后直接进入聊天，不再显示设置对话框\n5. 【修复】消息气泡靠上对齐问题",
     "APP_FORCE_UPDATE": "false",
     "APP_MIN_SDK": "24",
-    "WIN_VERSION_CODE": "19",
-    "WIN_VERSION_NAME": "1.1.8",
+    "WIN_VERSION_CODE": "20",
+    "WIN_VERSION_NAME": "1.1.9",
     "WIN_DOWNLOAD_URL": "https://chat-windows.zztxer.dpdns.org/download",
-    "WIN_CHANGELOG": "1. 【新增】文件下载功能，支持保存并打开\n2. 【修复】更新检查API地址错误问题\n3. 【优化】消息解析逻辑，支持Android版发送的[FILE]和[LOC]格式\n4. 【新增】强制更新支持",
+    "WIN_CHANGELOG": "1. 【修复】下载路径问题，支持自定义下载文件夹\n2. 【修复】PyInstaller打包警告问题\n3. 【优化】更新检查逻辑\n4. 【优化】窗口样式和按钮显示",
     "WIN_FORCE_UPDATE": "false"
   }
 }
