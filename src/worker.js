@@ -357,6 +357,7 @@ async function sendMessage(request, env, ctx, prefix, safeRoomId, origin) {
 
   const sender = (body.sender || body.username || "匿名用户").toString().trim().slice(0, 40);
   const content = (body.content || body.text || "").toString().trim();
+  const avatar = body.avatar || null;
 
   if (!content) {
     return jsonResponse(400, { ok: false, error: "消息内容不能为空" }, origin);
@@ -376,6 +377,7 @@ async function sendMessage(request, env, ctx, prefix, safeRoomId, origin) {
     content,
     timestamp,
     createdAt: new Date(timestamp).toISOString(),
+    avatar,
   };
 
   await env.CHAT_KV.put(key, JSON.stringify(message), {
