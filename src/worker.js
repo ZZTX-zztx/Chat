@@ -175,6 +175,15 @@ export default {
         }
       }
 
+      if (path === "/api/groups") {
+        if (request.method === "GET") {
+          return await getGroups(request, env, origin);
+        }
+        if (request.method === "POST") {
+          return await createGroup(request, env, origin);
+        }
+      }
+
       return jsonResponse(404, { ok: false, error: "Not Found" }, origin);
     } catch (err) {
       console.error(err);
@@ -570,5 +579,92 @@ async function handleLogin(request, env, origin) {
     token,
     username,
     expiresAt: tokenData.expiresAt,
+  }, origin);
+}
+
+async function createGroup(request, env, origin) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse(400, { ok: false, error: "Invalid JSON body" }, origin);
+  }
+
+  const name = (body.name || "").toString().trim();
+
+  if (!name) {
+    return jsonResponse(400, { ok: false, error: "群名称不能为空" }, origin);
+  }
+  if (name.length > 50) {
+    return jsonResponse(400, { ok: false, error: "群名称不能超过50个字符" }, origin);
+  }
+
+  const kv = env.CHAT_KV;
+  const groupId = uuid();
+  const groupKey = `group:${groupId}`;
+  const groupIndexKey = "groups:index";
+
+  const groupData = {
+    id: groupId,
+    name,
+    createdAt: Date.now(),
+    createdBy: body.createdBy || "system",
+    memberIds: body.memberIds || [],
+  };
+
+  await kv.put(groupKey, JSON.stringify(groupData));
+
+  const indexRaw = await kv.get(groupIndexKey, { type: "text" });
+  let groupIds = [];
+  if (indexRaw) {
+    try {
+      groupIds = JSON.parse(indexRaw);
+    } catch {
+      groupIds = [];
+    }
+  }
+  groupIds.push(groupId);
+  await kv.put(groupIndexKey, JSON.stringify(groupIds));
+
+  return jsonResponse(201, {
+    ok: true,
+    message: "群聊创建成功",
+    group: groupData,
+  }, origin);
+}
+
+async function getGroups(request, env, origin) {
+  const kv = env.CHAT_KV;
+  const groupIndexKey = "groups:index";
+
+  const indexRaw = await kv.get(groupIndexKey, { type: "text" });
+  let groupIds = [];
+  if (indexRaw) {
+    try {
+      groupIds = JSON.parse(indexRaw);
+    } catch {
+      groupIds = [];
+    }
+  }
+
+  const groups = [];
+  for (const id of groupIds) {
+    const groupKey = `group:${id}`;
+    const raw = await kv.get(groupKey, { type: "text" });
+    if (raw) {
+      try {
+        const group = JSON.parse(raw);
+        groups.push(group);
+      } catch {
+      }
+    }
+  }
+
+  groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  return jsonResponse(200, {
+    ok: true,
+    groups,
+    count: groups.length,
   }, origin);
 }
