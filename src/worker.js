@@ -508,6 +508,7 @@ async function handleRegister(request, env, origin) {
     passwordHash: hash,
     salt,
     createdAt: Date.now(),
+    avatar: body.avatar || null,
   };
 
   await kv.put(userKey, JSON.stringify(userData));
@@ -526,6 +527,7 @@ async function handleRegister(request, env, origin) {
     token,
     username,
     expiresAt: tokenData.expiresAt,
+    avatar: body.avatar || null,
   }, origin);
 }
 
@@ -579,6 +581,7 @@ async function handleLogin(request, env, origin) {
     token,
     username,
     expiresAt: tokenData.expiresAt,
+    avatar: userData.avatar || null,
   }, origin);
 }
 
