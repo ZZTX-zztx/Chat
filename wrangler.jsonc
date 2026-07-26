@@ -14,7 +14,7 @@
     "API_KEY": "",
     "APP_VERSION_CODE": "9",
     "APP_VERSION_NAME": "1.2.7",
-    "APP_DOWNLOAD_URL": "https://chat-apk.zztxer.dpdns.org/download",
+    "APP_DOWNLOAD_URL": "https://chat-apk.zztxer.dpdns.org/1.2.7-app-debug.apk",
     "APP_CHANGELOG": "1. 【新增】添加创建群聊功能\n2. 【新增】侧边栏菜单，包含创建群聊、设置、退出登录选项\n3. 【新增】用户头像上传和显示功能\n4. 【修复】聊天消息头像显示问题\n5. 【修复】跳过登录按钮跳转错误问题\n6. 【优化】禁止匿名登录，强制用户登录",
     "APP_FORCE_UPDATE": "false",
     "APP_MIN_SDK": "24",
