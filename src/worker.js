@@ -620,7 +620,11 @@ async function createGroup(request, env, origin) {
   const groupKey = `group:${groupId}`;
   const groupIndexKey = "groups:index";
 
-  const matchCode = (body.matchCode || "").toString().trim().slice(0, 8).toUpperCase() || null;
+  const matchCode = (body.matchCode || "").toString().trim().slice(0, 6) || null;
+
+  if (matchCode && (!/^\d{6}$/.test(matchCode))) {
+    return jsonResponse(400, { ok: false, error: "匹配码必须为6位数字" }, origin);
+  }
 
   if (matchCode) {
     const existingCodeKey = `group:code:${matchCode}`;
