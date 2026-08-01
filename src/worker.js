@@ -175,29 +175,8 @@ export default {
         }
       }
 
-      if (path === "/api/groups") {
-        if (request.method === "GET") {
-          return await getGroups(request, env, origin);
-        }
-        if (request.method === "POST") {
-          return await createGroup(request, env, origin);
-        }
-      }
-
-      if (path.startsWith("/api/groups/") && request.method === "DELETE") {
-        const groupId = path.split("/api/groups/")[1];
-        return await dismissGroup(request, env, origin, groupId);
-      }
-
       if (path === "/api/notify" && request.method === "POST") {
         return await handleNotify(request, env, origin);
-      }
-
-      if (path.startsWith("/api/groups/join/")) {
-        const matchCode = path.split("/api/groups/join/")[1];
-        if (request.method === "POST") {
-          return await joinGroup(request, env, origin, matchCode);
-        }
       }
 
       return jsonResponse(404, { ok: false, error: "Not Found" }, origin);
@@ -603,112 +582,6 @@ async function handleLogin(request, env, origin) {
   }, origin);
 }
 
-async function createGroup(request, env, origin) {
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse(400, { ok: false, error: "Invalid JSON body" }, origin);
-  }
-
-  const name = (body.name || "").toString().trim();
-
-  if (!name) {
-    return jsonResponse(400, { ok: false, error: "群名称不能为空" }, origin);
-  }
-  if (name.length > 50) {
-    return jsonResponse(400, { ok: false, error: "群名称不能超过50个字符" }, origin);
-  }
-
-  const kv = env.CHAT_KV;
-  const groupId = uuid();
-  const groupKey = `group:${groupId}`;
-  const groupIndexKey = "groups:index";
-
-  const matchCode = (body.matchCode || "").toString().trim().slice(0, 6) || null;
-
-  if (matchCode && (!/^\d{6}$/.test(matchCode))) {
-    return jsonResponse(400, { ok: false, error: "匹配码必须为6位数字" }, origin);
-  }
-
-  if (matchCode) {
-    const existingCodeKey = `group:code:${matchCode}`;
-    const existing = await kv.get(existingCodeKey, { type: "text" });
-    if (existing) {
-      return jsonResponse(409, { ok: false, error: "匹配码已存在，请更换一个" }, origin);
-    }
-  }
-
-  const groupData = {
-    id: groupId,
-    name,
-    matchCode,
-    createdAt: Date.now(),
-    createdBy: body.createdBy || "system",
-    memberIds: body.memberIds || [],
-  };
-
-  await kv.put(groupKey, JSON.stringify(groupData));
-
-  if (matchCode) {
-    await kv.put(`group:code:${matchCode}`, groupId);
-  }
-
-  const indexRaw = await kv.get(groupIndexKey, { type: "text" });
-  let groupIds = [];
-  if (indexRaw) {
-    try {
-      groupIds = JSON.parse(indexRaw);
-    } catch {
-      groupIds = [];
-    }
-  }
-  groupIds.push(groupId);
-  await kv.put(groupIndexKey, JSON.stringify(groupIds));
-
-  return jsonResponse(201, {
-    ok: true,
-    message: "群聊创建成功",
-    group: groupData,
-  }, origin);
-}
-
-async function getGroups(request, env, origin) {
-  const kv = env.CHAT_KV;
-  const groupIndexKey = "groups:index";
-
-  const indexRaw = await kv.get(groupIndexKey, { type: "text" });
-  let groupIds = [];
-  if (indexRaw) {
-    try {
-      groupIds = JSON.parse(indexRaw);
-    } catch {
-      groupIds = [];
-    }
-  }
-
-  const groups = [];
-  for (const id of groupIds) {
-    const groupKey = `group:${id}`;
-    const raw = await kv.get(groupKey, { type: "text" });
-    if (raw) {
-      try {
-        const group = JSON.parse(raw);
-        groups.push(group);
-      } catch {
-      }
-    }
-  }
-
-  groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-  return jsonResponse(200, {
-    ok: true,
-    groups,
-    count: groups.length,
-  }, origin);
-}
-
 async function handleNotify(request, env, origin) {
   let body;
   try {
@@ -742,56 +615,5 @@ async function handleNotify(request, env, origin) {
     ok: true,
     message: "通知已发送",
     notifyId,
-  }, origin);
-}
-
-async function joinGroup(request, env, origin, matchCode) {
-  if (!matchCode) {
-    return jsonResponse(400, { ok: false, error: "匹配码不能为空" }, origin);
-  }
-
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse(400, { ok: false, error: "Invalid JSON body" }, origin);
-  }
-
-  const userId = (body.userId || "").toString().trim();
-  if (!userId) {
-    return jsonResponse(400, { ok: false, error: "用户ID不能为空" }, origin);
-  }
-
-  const kv = env.CHAT_KV;
-  const codeKey = `group:code:${matchCode.toUpperCase()}`;
-  const groupId = await kv.get(codeKey, { type: "text" });
-
-  if (!groupId) {
-    return jsonResponse(404, { ok: false, error: "匹配码无效" }, origin);
-  }
-
-  const groupKey = `group:${groupId}`;
-  const groupRaw = await kv.get(groupKey, { type: "text" });
-  if (!groupRaw) {
-    return jsonResponse(404, { ok: false, error: "群聊不存在" }, origin);
-  }
-
-  let groupData;
-  try {
-    groupData = JSON.parse(groupRaw);
-  } catch {
-    return jsonResponse(500, { ok: false, error: "服务器错误" }, origin);
-  }
-
-  if (!groupData.memberIds.includes(userId)) {
-    groupData.memberIds.push(userId);
-    groupData.updatedAt = Date.now();
-    await kv.put(groupKey, JSON.stringify(groupData));
-  }
-
-  return jsonResponse(200, {
-    ok: true,
-    message: "已加入群聊",
-    group: groupData,
   }, origin);
 }
