@@ -184,6 +184,11 @@ export default {
         }
       }
 
+      if (path.startsWith("/api/groups/") && request.method === "DELETE") {
+        const groupId = path.split("/api/groups/")[1];
+        return await dismissGroup(request, env, origin, groupId);
+      }
+
       if (path === "/api/notify" && request.method === "POST") {
         return await handleNotify(request, env, origin);
       }
