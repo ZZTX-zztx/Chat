@@ -5,6 +5,38 @@ const DEFAULT_LIMIT = 100;
 const TOKEN_EXPIRE_SECONDS = 86400;
 const PBKDF2_ITERATIONS = 100000;
 
+// 多 KV 故障转移机制
+function getAvailableKVs(env) {
+  const kvs = [];
+  if (env.CHAT_KV) kvs.push({ name: "CHAT_KV", kv: env.CHAT_KV });
+  if (env.CHAT_KV_1) kvs.push({ name: "CHAT_KV_1", kv: env.CHAT_KV_1 });
+  if (env.CHAT_KV_2) kvs.push({ name: "CHAT_KV_2", kv: env.CHAT_KV_2 });
+  if (env.CHAT_KV_3) kvs.push({ name: "CHAT_KV_3", kv: env.CHAT_KV_3 });
+  return kvs;
+}
+
+// 尝试在多个 KV 中执行操作，直到成功
+async function tryKvOperations(kvs, operation, fallback = null) {
+  if (kvs.length === 0) return fallback;
+  
+  for (let i = 0; i < kvs.length; i++) {
+    try {
+      const result = await operation(kvs[i].kv);
+      if (i > 0) {
+        console.log(`KV failover: ${kvs[0].name} -> ${kvs[i].name}`);
+      }
+      return result;
+    } catch (err) {
+      console.error(`${kvs[i].name} failed:`, err.message);
+      if (i === kvs.length - 1) {
+        console.error("All KV stores failed");
+        return fallback;
+      }
+    }
+  }
+  return fallback;
+}
+
 function corsHeaders(origin) {
   const headers = {
     "Content-Type": "application/json; charset=utf-8",
@@ -60,21 +92,24 @@ async function hashPassword(password, salt) {
     .join("");
 }
 
-async function validateToken(kv, token) {
+async function validateToken(kvs, token) {
   if (!token) return null;
   const key = `token:${token}`;
-  const raw = await kv.get(key, { type: "text" });
-  if (!raw) return null;
-  try {
-    const data = JSON.parse(raw);
-    if (data.expiresAt < Date.now()) {
-      await kv.delete(key);
+  
+  return await tryKvOperations(kvs, async (kv) => {
+    const raw = await kv.get(key, { type: "text" });
+    if (!raw) return null;
+    try {
+      const data = JSON.parse(raw);
+      if (data.expiresAt < Date.now()) {
+        await kv.delete(key);
+        return null;
+      }
+      return data;
+    } catch {
       return null;
     }
-    return data;
-  } catch {
-    return null;
-  }
+  }, null);
 }
 
 function jsonResponse(status, data, origin) {
@@ -87,9 +122,10 @@ function jsonResponse(status, data, origin) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      // 验证 KV 绑定是否存在
-      if (!env || !env.CHAT_KV) {
-        console.error("CHAT_KV binding is missing");
+      // 验证至少有一个 KV 绑定存在
+      const availableKVs = getAvailableKVs(env);
+      if (availableKVs.length === 0) {
+        console.error("No KV bindings available");
         const origin = request.headers.get("Origin");
         return jsonResponse(503, { 
           ok: false, 
@@ -114,7 +150,8 @@ export default {
           ok: true,
           service: "chat-kv-worker",
           room: roomId.replace(/[^a-zA-Z0-9_-]/g, "-"),
-          kv_bound: !!env.CHAT_KV,
+          kv_bound: availableKVs.length > 0,
+          kv_count: availableKVs.length,
         }, origin);
       }
 
@@ -142,17 +179,17 @@ export default {
       }
 
       if (request.method === "POST" && path === "/api/register") {
-        return await handleRegister(request, env, origin);
+        return await handleRegister(request, env, origin, availableKVs);
       }
 
       if (request.method === "POST" && path === "/api/login") {
-        return await handleLogin(request, env, origin);
+        return await handleLogin(request, env, origin, availableKVs);
       }
 
       let currentUser = null;
       const token = request.headers.get("Authorization")?.replace("Bearer ", "");
       if (token) {
-        const tokenData = await validateToken(env.CHAT_KV, token);
+        const tokenData = await validateToken(availableKVs, token);
         if (tokenData) {
           currentUser = tokenData.username;
         }
@@ -172,22 +209,22 @@ export default {
 
       if (path === "/api/messages" || path === "/messages") {
         if (request.method === "GET") {
-          return await getMessages(request, env, ctx, prefix, safeRoomId, origin);
+          return await getMessages(request, env, ctx, prefix, safeRoomId, origin, availableKVs);
         }
         if (request.method === "POST") {
-          return await sendMessage(request, env, ctx, prefix, safeRoomId, origin);
+          return await sendMessage(request, env, ctx, prefix, safeRoomId, origin, availableKVs);
         }
       }
 
       if (path.startsWith("/api/messages/")) {
         const id = path.split("/api/messages/")[1];
         if (request.method === "DELETE") {
-          return await deleteMessage(request, env, ctx, prefix, id, origin);
+          return await deleteMessage(request, env, ctx, prefix, id, origin, availableKVs);
         }
       }
 
       if (path === "/api/notify" && request.method === "POST") {
-        return await handleNotify(request, env, origin);
+        return await handleNotify(request, env, origin, availableKVs);
       }
 
       return jsonResponse(404, { ok: false, error: "Not Found" }, origin);
@@ -203,7 +240,7 @@ export default {
   },
 };
 
-async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
+async function getMessages(request, env, ctx, prefix, safeRoomId, origin, availableKVs) {
   const url = new URL(request.url);
   const limit = Math.min(
     parseInt(url.searchParams.get("limit") || DEFAULT_LIMIT, 10),
@@ -211,10 +248,11 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
   );
   const since = url.searchParams.get("since");
 
-  const kv = env.CHAT_KV;
   const indexKey = `${prefix}index`;
 
-  const indexRaw = await kv.get(indexKey, { type: "text" });
+  const indexRaw = await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.get(indexKey, { type: "text" });
+  }, null);
   let messageIds = [];
   if (indexRaw) {
     try {
@@ -227,7 +265,8 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
   if (messageIds.length === 0) {
     let list, keys, sortedKeys, sliceKeys;
     try {
-      list = await kv.list({ prefix, limit: limit + 50 });
+      const primaryKv = availableKVs[0].kv;
+      list = await primaryKv.list({ prefix, limit: limit + 50 });
       keys = list.keys || [];
       sortedKeys = keys.map((k) => k.name).sort();
       sliceKeys = sortedKeys.slice(-limit);
@@ -257,7 +296,10 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
       }, origin);
     }
 
-    const result = await getMany(kv, sliceKeys);
+    const result = await tryKvOperations(availableKVs, async (kv) => {
+      return await getMany(kv, sliceKeys);
+    }, []);
+    
     const messages = result
       .filter((m) => m)
       .map((raw) => {
@@ -274,12 +316,13 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
 
     ctx.waitUntil((async () => {
       try {
-        const allList = await kv.list({ prefix, limit: 1000 });
+        const primaryKv = availableKVs[0].kv;
+        const allList = await primaryKv.list({ prefix, limit: 1000 });
         const allKeys = allList.keys || [];
         const ids = [];
         for (const k of allKeys) {
           if (k.name !== indexKey) {
-            const raw = await kv.get(k.name, { type: "text" });
+            const raw = await primaryKv.get(k.name, { type: "text" });
             try {
               const msg = JSON.parse(raw);
               if (msg && msg.id) {
@@ -290,7 +333,7 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
           }
         }
         ids.sort();
-        await kv.put(indexKey, JSON.stringify(ids));
+        await primaryKv.put(indexKey, JSON.stringify(ids));
       } catch (err) {
         console.error("Index building failed:", err);
       }
@@ -310,7 +353,9 @@ async function getMessages(request, env, ctx, prefix, safeRoomId, origin) {
   const sliceIds = messageIds.slice(-limit);
   const keys = sliceIds.map(id => `${prefix}${id}`);
   
-  const result = await getMany(kv, keys);
+  const result = await tryKvOperations(availableKVs, async (kv) => {
+    return await getMany(kv, keys);
+  }, []);
   const messages = result
     .filter((m) => m)
     .map((raw) => {
@@ -341,7 +386,7 @@ async function getMany(kv, keys) {
   return Promise.all(promises);
 }
 
-async function sendMessage(request, env, ctx, prefix, safeRoomId, origin) {
+async function sendMessage(request, env, ctx, prefix, safeRoomId, origin, availableKVs) {
   const clHeader = request.headers.get("Content-Length");
   if (clHeader) {
     const cl = parseInt(clHeader, 10);
@@ -391,12 +436,16 @@ async function sendMessage(request, env, ctx, prefix, safeRoomId, origin) {
     avatar,
   };
 
-  await env.CHAT_KV.put(key, JSON.stringify(message), {
-    metadata: { t: timestamp, s: sender.slice(0, 20), r: safeRoomId },
+  await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.put(key, JSON.stringify(message), {
+      metadata: { t: timestamp, s: sender.slice(0, 20), r: safeRoomId },
+    });
   });
 
   const indexKey = `${prefix}index`;
-  const indexRaw = await env.CHAT_KV.get(indexKey, { type: "text" });
+  const indexRaw = await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.get(indexKey, { type: "text" });
+  }, null);
   let messageIds = [];
   if (indexRaw) {
     try {
@@ -412,19 +461,23 @@ async function sendMessage(request, env, ctx, prefix, safeRoomId, origin) {
     if (messageIds.length > max) {
       const toDeleteIds = messageIds.slice(0, messageIds.length - max);
       const toDeleteKeys = toDeleteIds.map(delId => `${prefix}${delId}`);
-      await env.CHAT_KV.delete(toDeleteKeys);
+      await tryKvOperations(availableKVs, async (kv) => {
+        return await kv.delete(toDeleteKeys);
+      });
       messageIds = messageIds.slice(-max);
     }
   }
 
-  await env.CHAT_KV.put(indexKey, JSON.stringify(messageIds));
+  await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.put(indexKey, JSON.stringify(messageIds));
+  });
 
   return jsonResponse(201, { ok: true, message }, origin);
 }
 
 const RECALL_WINDOW_MS = 30 * 1000;
 
-async function deleteMessage(request, env, ctx, prefix, id, origin) {
+async function deleteMessage(request, env, ctx, prefix, id, origin, availableKVs) {
   if (!id) {
     return jsonResponse(400, { ok: false, error: "Missing message id" }, origin);
   }
@@ -436,7 +489,9 @@ async function deleteMessage(request, env, ctx, prefix, id, origin) {
   }
 
   const indexKey = `${prefix}index`;
-  const indexRaw = await env.CHAT_KV.get(indexKey, { type: "text" });
+  const indexRaw = await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.get(indexKey, { type: "text" });
+  }, null);
   let messageIds = [];
   if (indexRaw) {
     try {
@@ -452,7 +507,9 @@ async function deleteMessage(request, env, ctx, prefix, id, origin) {
   }
 
   const messageKey = `${prefix}${id}`;
-  const raw = await env.CHAT_KV.get(messageKey, { type: "text" });
+  const raw = await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.get(messageKey, { type: "text" });
+  }, null);
   let message = null;
   try {
     message = raw ? JSON.parse(raw) : null;
@@ -473,15 +530,19 @@ async function deleteMessage(request, env, ctx, prefix, id, origin) {
     return jsonResponse(410, { ok: false, error: "超过30秒撤回时限" }, origin);
   }
 
-  await env.CHAT_KV.delete(messageKey);
+  await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.delete(messageKey);
+  });
   
   messageIds.splice(foundIndex, 1);
-  await env.CHAT_KV.put(indexKey, JSON.stringify(messageIds));
+  await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.put(indexKey, JSON.stringify(messageIds));
+  });
 
   return jsonResponse(200, { ok: true, deletedId: id }, origin);
 }
 
-async function handleRegister(request, env, origin) {
+async function handleRegister(request, env, origin, availableKVs) {
   let body;
   try {
     body = await request.json();
@@ -505,9 +566,10 @@ async function handleRegister(request, env, origin) {
     return jsonResponse(400, { ok: false, error: "密码至少需要6位" }, origin);
   }
 
-  const kv = env.CHAT_KV;
   const userKey = `user:${username}`;
-  const existing = await kv.get(userKey, { type: "text" });
+  const existing = await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.get(userKey, { type: "text" });
+  }, null);
 
   if (existing) {
     return jsonResponse(409, { ok: false, error: "用户名已存在" }, origin);
@@ -524,7 +586,9 @@ async function handleRegister(request, env, origin) {
     avatar: body.avatar || null,
   };
 
-  await kv.put(userKey, JSON.stringify(userData));
+  await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.put(userKey, JSON.stringify(userData));
+  });
 
   const token = uuid();
   const tokenKey = `token:${token}`;
@@ -532,7 +596,9 @@ async function handleRegister(request, env, origin) {
     username,
     expiresAt: Date.now() + TOKEN_EXPIRE_SECONDS * 1000,
   };
-  await kv.put(tokenKey, JSON.stringify(tokenData));
+  await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.put(tokenKey, JSON.stringify(tokenData));
+  });
 
   return jsonResponse(201, {
     ok: true,
@@ -544,7 +610,7 @@ async function handleRegister(request, env, origin) {
   }, origin);
 }
 
-async function handleLogin(request, env, origin) {
+async function handleLogin(request, env, origin, availableKVs) {
   let body;
   try {
     body = await request.json();
@@ -559,9 +625,10 @@ async function handleLogin(request, env, origin) {
     return jsonResponse(400, { ok: false, error: "用户名或密码不能为空" }, origin);
   }
 
-  const kv = env.CHAT_KV;
   const userKey = `user:${username}`;
-  const raw = await kv.get(userKey, { type: "text" });
+  const raw = await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.get(userKey, { type: "text" });
+  }, null);
 
   if (!raw) {
     return jsonResponse(401, { ok: false, error: "用户名或密码错误" }, origin);
@@ -586,7 +653,9 @@ async function handleLogin(request, env, origin) {
     username,
     expiresAt: Date.now() + TOKEN_EXPIRE_SECONDS * 1000,
   };
-  await kv.put(tokenKey, JSON.stringify(tokenData));
+  await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.put(tokenKey, JSON.stringify(tokenData));
+  });
 
   return jsonResponse(200, {
     ok: true,
@@ -598,7 +667,7 @@ async function handleLogin(request, env, origin) {
   }, origin);
 }
 
-async function handleNotify(request, env, origin) {
+async function handleNotify(request, env, origin, availableKVs) {
   let body;
   try {
     body = await request.json();
@@ -613,7 +682,6 @@ async function handleNotify(request, env, origin) {
     return jsonResponse(400, { ok: false, error: "发送者和内容不能为空" }, origin);
   }
 
-  const kv = env.CHAT_KV;
   const notifyId = uuid();
   const notifyKey = `notify:${notifyId}`;
   const notifyData = {
@@ -623,8 +691,10 @@ async function handleNotify(request, env, origin) {
     timestamp: body.timestamp || Date.now(),
   };
 
-  await kv.put(notifyKey, JSON.stringify(notifyData), {
-    expirationTtl: 60,
+  await tryKvOperations(availableKVs, async (kv) => {
+    return await kv.put(notifyKey, JSON.stringify(notifyData), {
+      expirationTtl: 60,
+    });
   });
 
   return jsonResponse(200, {

@@ -6,6 +6,18 @@
     {
       "binding": "CHAT_KV",
       "id": "3f48e77d245f41bfa2fbc1852bf7c98b"
+    },
+    {
+      "binding": "CHAT_KV_1",
+      "id": "1e332a79eda84f84a2fe46cc1e289fac"
+    },
+    {
+      "binding": "CHAT_KV_2",
+      "id": "c0cfa22527484933868ecf762c5776b5"
+    },
+    {
+      "binding": "CHAT_KV_3",
+      "id": "ae2d3bc2f4d340f1b8626a136b3ddb2b"
     }
   ],
   "vars": {
