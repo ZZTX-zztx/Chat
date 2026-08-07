@@ -8,9 +8,10 @@ const PBKDF2_ITERATIONS = 100000;
 function corsHeaders(origin) {
   const headers = {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
+    "Access-Control-Max-Age": "86400",
     "Cache-Control": "no-store",
   };
   return headers;
@@ -85,80 +86,90 @@ function jsonResponse(status, data, origin) {
 
 export default {
   async fetch(request, env, ctx) {
-    const origin = request.headers.get("Origin");
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders(origin),
-      });
-    }
-
-    if (request.method === "GET" && (path === "/health" || path === "/")) {
-      const roomId = (url.searchParams.get("room") || env.ROOM_ID || "default").trim().slice(0, 64);
-      return jsonResponse(200, {
-        ok: true,
-        service: "chat-kv-worker",
-        room: roomId.replace(/[^a-zA-Z0-9_-]/g, "-"),
-        kv_bound: !!env.CHAT_KV,
-      }, origin);
-    }
-
-    if (request.method === "GET" && path === "/api/app-version") {
-      return jsonResponse(200, {
-        ok: true,
-        versionCode: parseInt(env.APP_VERSION_CODE || "1", 10) || 1,
-        versionName: env.APP_VERSION_NAME || "1.0.0",
-        downloadUrl: env.APP_DOWNLOAD_URL || "",
-        changelog: env.APP_CHANGELOG || "",
-        forceUpdate: (env.APP_FORCE_UPDATE || "false").toString().toLowerCase() === "true",
-        minSdkVersion: parseInt(env.APP_MIN_SDK || "24", 10) || 24,
-      }, origin);
-    }
-
-    if (request.method === "GET" && path === "/api/win-version") {
-      return jsonResponse(200, {
-        ok: true,
-        versionCode: parseInt(env.WIN_VERSION_CODE || "1", 10) || 1,
-        versionName: env.WIN_VERSION_NAME || "1.0.0",
-        downloadUrl: env.WIN_DOWNLOAD_URL || "",
-        changelog: env.WIN_CHANGELOG || "",
-        forceUpdate: (env.WIN_FORCE_UPDATE || "false").toString().toLowerCase() === "true",
-      }, origin);
-    }
-
-    if (request.method === "POST" && path === "/api/register") {
-      return await handleRegister(request, env, origin);
-    }
-
-    if (request.method === "POST" && path === "/api/login") {
-      return await handleLogin(request, env, origin);
-    }
-
-    let currentUser = null;
-    const token = request.headers.get("Authorization")?.replace("Bearer ", "");
-    if (token) {
-      const tokenData = await validateToken(env.CHAT_KV, token);
-      if (tokenData) {
-        currentUser = tokenData.username;
-      }
-    }
-
-    const apiKey = env.API_KEY || "";
-    if (apiKey) {
-      const provided = request.headers.get("x-api-key") || request.headers.get("Authorization")?.replace("Bearer ", "");
-      if (provided !== apiKey && !currentUser) {
-        return jsonResponse(401, { ok: false, error: "Unauthorized" }, origin);
-      }
-    }
-
-    const roomId = (url.searchParams.get("room") || env.ROOM_ID || "default").trim().slice(0, 64);
-    const safeRoomId = roomId.replace(/[^a-zA-Z0-9_-]/g, "-");
-    const prefix = `msg:${safeRoomId}:`;
-
     try {
+      // 验证 KV 绑定是否存在
+      if (!env || !env.CHAT_KV) {
+        console.error("CHAT_KV binding is missing");
+        const origin = request.headers.get("Origin");
+        return jsonResponse(503, { 
+          ok: false, 
+          error: "服务器配置错误：KV存储未绑定"
+        }, origin);
+      }
+
+      const origin = request.headers.get("Origin");
+      const url = new URL(request.url);
+      const path = url.pathname;
+
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: corsHeaders(origin),
+        });
+      }
+
+      if (request.method === "GET" && (path === "/health" || path === "/")) {
+        const roomId = (url.searchParams.get("room") || env.ROOM_ID || "default").trim().slice(0, 64);
+        return jsonResponse(200, {
+          ok: true,
+          service: "chat-kv-worker",
+          room: roomId.replace(/[^a-zA-Z0-9_-]/g, "-"),
+          kv_bound: !!env.CHAT_KV,
+        }, origin);
+      }
+
+      if (request.method === "GET" && path === "/api/app-version") {
+        return jsonResponse(200, {
+          ok: true,
+          versionCode: parseInt(env.APP_VERSION_CODE || "1", 10) || 1,
+          versionName: env.APP_VERSION_NAME || "1.0.0",
+          downloadUrl: env.APP_DOWNLOAD_URL || "",
+          changelog: env.APP_CHANGELOG || "",
+          forceUpdate: (env.APP_FORCE_UPDATE || "false").toString().toLowerCase() === "true",
+          minSdkVersion: parseInt(env.APP_MIN_SDK || "24", 10) || 24,
+        }, origin);
+      }
+
+      if (request.method === "GET" && path === "/api/win-version") {
+        return jsonResponse(200, {
+          ok: true,
+          versionCode: parseInt(env.WIN_VERSION_CODE || "1", 10) || 1,
+          versionName: env.WIN_VERSION_NAME || "1.0.0",
+          downloadUrl: env.WIN_DOWNLOAD_URL || "",
+          changelog: env.WIN_CHANGELOG || "",
+          forceUpdate: (env.WIN_FORCE_UPDATE || "false").toString().toLowerCase() === "true",
+        }, origin);
+      }
+
+      if (request.method === "POST" && path === "/api/register") {
+        return await handleRegister(request, env, origin);
+      }
+
+      if (request.method === "POST" && path === "/api/login") {
+        return await handleLogin(request, env, origin);
+      }
+
+      let currentUser = null;
+      const token = request.headers.get("Authorization")?.replace("Bearer ", "");
+      if (token) {
+        const tokenData = await validateToken(env.CHAT_KV, token);
+        if (tokenData) {
+          currentUser = tokenData.username;
+        }
+      }
+
+      const apiKey = env.API_KEY || "";
+      if (apiKey) {
+        const provided = request.headers.get("x-api-key") || request.headers.get("Authorization")?.replace("Bearer ", "");
+        if (provided !== apiKey && !currentUser) {
+          return jsonResponse(401, { ok: false, error: "Unauthorized" }, origin);
+        }
+      }
+
+      const roomId = (url.searchParams.get("room") || env.ROOM_ID || "default").trim().slice(0, 64);
+      const safeRoomId = roomId.replace(/[^a-zA-Z0-9_-]/g, "-");
+      const prefix = `msg:${safeRoomId}:`;
+
       if (path === "/api/messages" || path === "/messages") {
         if (request.method === "GET") {
           return await getMessages(request, env, ctx, prefix, safeRoomId, origin);
@@ -181,8 +192,13 @@ export default {
 
       return jsonResponse(404, { ok: false, error: "Not Found" }, origin);
     } catch (err) {
-      console.error(err);
-      return jsonResponse(500, { ok: false, error: err.message || "Internal Server Error" }, origin);
+      console.error("Worker error:", err);
+      const origin = request.headers.get("Origin");
+      return jsonResponse(500, { 
+        ok: false, 
+        error: "服务器内部错误",
+        details: err.message || "Unknown error"
+      }, origin);
     }
   },
 };
