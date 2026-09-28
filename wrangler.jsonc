@@ -1,39 +1,11 @@
 {
   "name": "chat",
-  "main": "src/worker.js",
+  "main": "index.js",
   "compatibility_date": "2024-01-01",
   "kv_namespaces": [
     {
-      "binding": "CHAT_KV",
-      "id": "3f48e77d245f41bfa2fbc1852bf7c98b"
-    },
-    {
-      "binding": "CHAT_KV_1",
-      "id": "1e332a79eda84f84a2fe46cc1e289fac"
-    },
-    {
-      "binding": "CHAT_KV_2",
-      "id": "c0cfa22527484933868ecf762c5776b5"
-    },
-    {
-      "binding": "CHAT_KV_3",
-      "id": "ae2d3bc2f4d340f1b8626a136b3ddb2b"
+      "binding": "Chat",
+      "id": ""
     }
-  ],
-  "vars": {
-    "ROOM_ID": "default-room",
-    "MAX_MESSAGES": "500",
-    "API_KEY": "",
-    "APP_VERSION_CODE": "11",
-    "APP_VERSION_NAME": "1.2.9",
-    "APP_DOWNLOAD_URL": "https://chat-apk.zztxer.dpdns.org/1.2.9-app-debug.apk",
-    "APP_CHANGELOG": "1. 【修复】登录/注册页面网络错误问题\n2. 【新增】登录对话框服务器地址输入功能\n3. 【优化】自动清理服务器地址中的非法字符\n4. 【优化】网络超时设置（8s → 15s）\n5. 【优化】改进错误提示，显示服务器返回的具体错误信息\n6. 【优化】增加详细调试日志便于问题排查",
-    "APP_FORCE_UPDATE": "false",
-    "APP_MIN_SDK": "24",
-    "WIN_VERSION_CODE": "23",
-    "WIN_VERSION_NAME": "1.2.2",
-    "WIN_DOWNLOAD_URL": "https://chat-windows.zztxer.dpdns.org/download",
-    "WIN_CHANGELOG": "1. 【修复】窗口标题栏图标显示问题\n2. 【优化】标题栏样式和稳定性\n3. 【优化】整体用户体验",
-    "WIN_FORCE_UPDATE": "false"
-  }
+  ]
 }
