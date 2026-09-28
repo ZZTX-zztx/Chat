@@ -1,11 +1,12 @@
 {
-  "name": "chat",
-  "main": "index.js",
-  "compatibility_date": "2026-09-28",
-  "kv_namespaces": [
-    {
-      "binding": "Chat",
-      "id": ""
-    }
-  ]
+	"name": "chat",
+	"main": "index.js",
+	"compatibility_date": "2024-01-01",
+	"kv_namespaces": [
+		{
+			"binding": "Chat",
+			"id": "f46ba1bbd9634aca8af7a2ebfd7006e4",
+			"remote": true
+		}
+	]
 }
